@@ -1,5 +1,12 @@
 import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/build/pdf.min.mjs';
 import { clientPointToCanvas, strokeHitsPoint } from './drawing.js';
+import {
+  addNotebookPage,
+  createNotebookRecord,
+  deserializeBackup,
+  normalizeDocumentRecord,
+  serializeBackup,
+} from './library.js';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/build/pdf.worker.min.mjs';
 
@@ -7,17 +14,29 @@ const DB_NAME = 'notes-rinrin';
 const DB_VERSION = 1;
 const PDF_RENDER_LIMIT = 2;
 
+const homeToolbar = document.querySelector('#home-toolbar');
+const documentToolbar = document.querySelector('#document-toolbar');
+const homeView = document.querySelector('#home-view');
 const viewer = document.querySelector('#viewer');
 const pdfInput = document.querySelector('#pdf-input');
+const backupInput = document.querySelector('#backup-input');
 const documentName = document.querySelector('#document-name');
 const status = document.querySelector('#status');
+const libraryStatus = document.querySelector('#library-status');
+const libraryGrid = document.querySelector('#library-grid');
+const libraryEmpty = document.querySelector('#library-empty');
 const pageTemplate = document.querySelector('#page-template');
+const homeButton = document.querySelector('#home-button');
+const addPageButton = document.querySelector('#add-page');
 const readTool = document.querySelector('#read-tool');
 const drawTool = document.querySelector('#draw-tool');
 const eraserTool = document.querySelector('#eraser-tool');
+const newNotebookButton = document.querySelector('#new-notebook');
+const newNotebookEmptyButton = document.querySelector('#new-notebook-empty');
+const exportLibraryButton = document.querySelector('#export-library');
 
 let mode = 'read';
-let currentDocumentId = null;
+let currentDocument = null;
 let renderGeneration = 0;
 let resizeTimer = null;
 let currentPdfBytes = null;
@@ -40,9 +59,29 @@ function setMode(nextMode) {
   }
 }
 
-readTool.addEventListener('click', () => setMode('read'));
-drawTool.addEventListener('click', () => setMode('draw'));
-eraserTool.addEventListener('click', () => setMode('erase'));
+function showHomeView() {
+  renderGeneration += 1;
+  currentDocument = null;
+  currentPdfBytes = null;
+  documentToolbar.hidden = true;
+  viewer.hidden = true;
+  homeToolbar.hidden = false;
+  homeView.hidden = false;
+  document.body.classList.remove('is-loading');
+  window.scrollTo({ top: 0, behavior: 'auto' });
+}
+
+function showDocumentView(record) {
+  currentDocument = normalizeDocumentRecord(record);
+  homeToolbar.hidden = true;
+  homeView.hidden = true;
+  documentToolbar.hidden = false;
+  viewer.hidden = false;
+  addPageButton.hidden = currentDocument.type !== 'notebook';
+  documentName.textContent = currentDocument.name;
+  setMode('read');
+  window.scrollTo({ top: 0, behavior: 'auto' });
+}
 
 function openDb() {
   return new Promise((resolve, reject) => {
@@ -75,6 +114,17 @@ async function idbGet(storeName, key) {
   });
 }
 
+async function idbGetAll(storeName) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, 'readonly');
+    const request = tx.objectStore(storeName).getAll();
+    request.onsuccess = () => resolve(request.result ?? []);
+    request.onerror = () => reject(request.error);
+    tx.oncomplete = () => db.close();
+  });
+}
+
 async function idbPut(storeName, value) {
   const db = await openDb();
   return new Promise((resolve, reject) => {
@@ -85,20 +135,21 @@ async function idbPut(storeName, value) {
   });
 }
 
+async function idbPutMany(storeName, values) {
+  if (!values.length) return;
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, 'readwrite');
+    const store = tx.objectStore(storeName);
+    values.forEach(value => store.put(value));
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
+  });
+}
+
 async function hashBytes(arrayBuffer) {
   const digest = await crypto.subtle.digest('SHA-256', arrayBuffer);
   return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
-}
-
-async function saveLocalDocument(id, name, bytes) {
-  await idbPut('documents', { id, name, data: bytes.slice(0), savedAt: Date.now() });
-  await idbPut('meta', { key: 'lastDocumentId', value: id });
-}
-
-async function getLastLocalDocument() {
-  const meta = await idbGet('meta', 'lastDocumentId');
-  if (!meta?.value) return null;
-  return idbGet('documents', meta.value);
 }
 
 function strokeKey(documentId, pageNumber) {
@@ -110,6 +161,14 @@ async function loadStrokes(documentId, pageNumber) {
   return Array.isArray(record?.strokes) ? record.strokes : [];
 }
 
+async function touchDocument(documentId) {
+  const raw = await idbGet('documents', documentId);
+  if (!raw) return;
+  const next = { ...raw, updatedAt: Date.now() };
+  await idbPut('documents', next);
+  if (currentDocument?.id === documentId) currentDocument = normalizeDocumentRecord(next);
+}
+
 async function saveStrokes(documentId, pageNumber, strokes) {
   await idbPut('strokes', {
     key: strokeKey(documentId, pageNumber),
@@ -118,6 +177,7 @@ async function saveStrokes(documentId, pageNumber, strokes) {
     strokes,
     savedAt: Date.now(),
   });
+  await touchDocument(documentId);
 }
 
 function normalizedPoint(event, canvas) {
@@ -159,7 +219,7 @@ function redrawInk(canvas, strokes) {
   strokes.forEach(stroke => drawStroke(context, canvas, stroke));
 }
 
-function bindInkCanvas(canvas, pageNumber, strokes) {
+function bindInkCanvas(canvas, pageNumber, strokes, documentId) {
   let activePointerId = null;
   let currentStroke = null;
   let changedByEraser = false;
@@ -179,7 +239,6 @@ function bindInkCanvas(canvas, pageNumber, strokes) {
 
   canvas.addEventListener('pointerdown', event => {
     if (mode === 'read') return;
-
     if (activePointerId !== null && event.pointerType === 'touch') {
       activePointerId = null;
       currentStroke = null;
@@ -220,8 +279,8 @@ function bindInkCanvas(canvas, pageNumber, strokes) {
     currentStroke = null;
     if (hadStroke || changedByEraser) {
       changedByEraser = false;
-      await saveStrokes(currentDocumentId, pageNumber, strokes);
-      setStatus(`Сохранено · ${pageNumber} стр.`);
+      await saveStrokes(documentId, pageNumber, strokes);
+      if (currentDocument?.id === documentId) setStatus(`Сохранено · ${pageNumber} стр.`);
     }
   };
 
@@ -234,7 +293,27 @@ function bindInkCanvas(canvas, pageNumber, strokes) {
   });
 }
 
-async function renderPage(pdf, pageNumber, generation) {
+function configurePageCanvases(fragment, cssWidth, cssHeight, outputScale, pageNumber) {
+  const pageElement = fragment.querySelector('.pdf-page');
+  const pdfCanvas = fragment.querySelector('.pdf-canvas');
+  const inkCanvas = fragment.querySelector('.ink-canvas');
+  const pageNumberElement = fragment.querySelector('.page-number');
+
+  pageElement.style.width = `${cssWidth}px`;
+  pageElement.style.height = `${cssHeight}px`;
+  const pixelWidth = Math.max(1, Math.floor(cssWidth * outputScale));
+  const pixelHeight = Math.max(1, Math.floor(cssHeight * outputScale));
+  for (const canvas of [pdfCanvas, inkCanvas]) {
+    canvas.width = pixelWidth;
+    canvas.height = pixelHeight;
+    canvas.style.width = `${cssWidth}px`;
+    canvas.style.height = `${cssHeight}px`;
+  }
+  pageNumberElement.textContent = String(pageNumber);
+  return { pageElement, pdfCanvas, inkCanvas };
+}
+
+async function renderPdfPage(pdf, pageNumber, generation, documentId) {
   if (generation !== renderGeneration) return;
   const page = await pdf.getPage(pageNumber);
   if (generation !== renderGeneration) return;
@@ -247,53 +326,44 @@ async function renderPage(pdf, pageNumber, generation) {
   const cssViewport = page.getViewport({ scale: cssScale });
 
   const fragment = pageTemplate.content.cloneNode(true);
-  const pageElement = fragment.querySelector('.pdf-page');
-  const pdfCanvas = fragment.querySelector('.pdf-canvas');
-  const inkCanvas = fragment.querySelector('.ink-canvas');
-  const pageNumberElement = fragment.querySelector('.page-number');
-
-  pageElement.style.width = `${cssViewport.width}px`;
-  pageElement.style.height = `${cssViewport.height}px`;
-  pdfCanvas.width = Math.floor(renderViewport.width);
-  pdfCanvas.height = Math.floor(renderViewport.height);
-  pdfCanvas.style.width = `${cssViewport.width}px`;
-  pdfCanvas.style.height = `${cssViewport.height}px`;
-  inkCanvas.width = pdfCanvas.width;
-  inkCanvas.height = pdfCanvas.height;
-  inkCanvas.style.width = `${cssViewport.width}px`;
-  inkCanvas.style.height = `${cssViewport.height}px`;
-  pageNumberElement.textContent = String(pageNumber);
-
+  const { pdfCanvas, inkCanvas } = configurePageCanvases(fragment, cssViewport.width, cssViewport.height, outputScale, pageNumber);
   viewer.appendChild(fragment);
 
-  await page.render({
-    canvasContext: pdfCanvas.getContext('2d'),
-    viewport: renderViewport,
-  }).promise;
-
+  await page.render({ canvasContext: pdfCanvas.getContext('2d'), viewport: renderViewport }).promise;
   if (generation !== renderGeneration) return;
-  const strokes = await loadStrokes(currentDocumentId, pageNumber);
+  const strokes = await loadStrokes(documentId, pageNumber);
   redrawInk(inkCanvas, strokes);
-  bindInkCanvas(inkCanvas, pageNumber, strokes);
+  bindInkCanvas(inkCanvas, pageNumber, strokes, documentId);
 }
 
-async function renderPdf(bytes, id, name) {
+async function renderPdf(record) {
   const generation = ++renderGeneration;
-  currentDocumentId = id;
-  currentPdfBytes = bytes.slice(0);
-  documentName.textContent = name;
+  const documentId = record.id;
+  const bytes = record.data;
+  currentPdfBytes = bytes?.slice ? bytes.slice(0) : bytes;
   document.body.classList.add('is-loading');
   setStatus('Открываю PDF…');
-
   viewer.replaceChildren();
+
   try {
-    const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(bytes.slice(0)) });
+    const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(currentPdfBytes.slice(0)) });
     const pdf = await loadingTask.promise;
     if (generation !== renderGeneration) return;
 
+    if (record.pageCount !== pdf.numPages || record.type !== 'pdf') {
+      const next = {
+        ...record,
+        type: 'pdf',
+        pageCount: pdf.numPages,
+        updatedAt: record.updatedAt ?? record.savedAt ?? Date.now(),
+      };
+      await idbPut('documents', next);
+      if (currentDocument?.id === record.id) currentDocument = normalizeDocumentRecord(next);
+    }
+
     setStatus(`${pdf.numPages} стр. · загружаю…`);
     for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
-      await renderPage(pdf, pageNumber, generation);
+      await renderPdfPage(pdf, pageNumber, generation, documentId);
       if (generation !== renderGeneration) return;
       setStatus(`${pageNumber}/${pdf.numPages} стр.`);
     }
@@ -307,47 +377,212 @@ async function renderPdf(bytes, id, name) {
   }
 }
 
-async function openSelectedFile(file) {
+async function renderNotebookPage(record, pageNumber, generation) {
+  if (generation !== renderGeneration) return;
+  const maxCssWidth = Math.min(900, Math.max(280, window.innerWidth - 20));
+  const cssWidth = maxCssWidth;
+  const cssHeight = cssWidth * 1.4142;
+  const outputScale = Math.min(window.devicePixelRatio || 1, PDF_RENDER_LIMIT);
+  const fragment = pageTemplate.content.cloneNode(true);
+  const { pdfCanvas, inkCanvas } = configurePageCanvases(fragment, cssWidth, cssHeight, outputScale, pageNumber);
+  const context = pdfCanvas.getContext('2d');
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, pdfCanvas.width, pdfCanvas.height);
+  viewer.appendChild(fragment);
+
+  const strokes = await loadStrokes(record.id, pageNumber);
+  redrawInk(inkCanvas, strokes);
+  bindInkCanvas(inkCanvas, pageNumber, strokes, record.id);
+}
+
+async function renderNotebook(record) {
+  const generation = ++renderGeneration;
+  currentPdfBytes = null;
+  viewer.replaceChildren();
+  const pageCount = record.pageCount ?? 1;
+  setStatus(`${pageCount} стр. · загружаю…`);
+  for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+    await renderNotebookPage(record, pageNumber, generation);
+    if (generation !== renderGeneration) return;
+  }
+  setStatus(`${pageCount} стр. · готово`);
+}
+
+async function openDocumentRecord(rawRecord) {
+  const record = normalizeDocumentRecord(rawRecord);
+  showDocumentView(record);
+  if (record.type === 'notebook') {
+    await renderNotebook(record);
+    return;
+  }
+  if (!record.data) {
+    viewer.innerHTML = `<section class="empty-state"><h1>PDF не найден</h1><p>В локальной записи нет самого файла.</p></section>`;
+    setStatus('Нет файла');
+    return;
+  }
+  await renderPdf(record);
+}
+
+async function openDocumentById(id) {
+  const record = await idbGet('documents', id);
+  if (record) await openDocumentRecord(record);
+}
+
+async function renderLibrary(message = '') {
+  showHomeView();
+  const rawDocuments = await idbGetAll('documents');
+  const documents = rawDocuments
+    .map(normalizeDocumentRecord)
+    .sort((a, b) => (b.updatedAt ?? b.savedAt ?? b.createdAt ?? 0) - (a.updatedAt ?? a.savedAt ?? a.createdAt ?? 0));
+
+  libraryGrid.replaceChildren();
+  libraryEmpty.hidden = documents.length > 0;
+  const countText = `${documents.length} ${documents.length === 1 ? 'документ' : 'документов'} · локально в этом браузере`;
+  libraryStatus.textContent = message ? `${message} · ${countText}` : countText;
+
+  for (const record of documents) {
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'document-card';
+    const icon = document.createElement('div');
+    icon.className = 'doc-icon';
+    icon.textContent = record.type === 'notebook' ? '▤' : 'PDF';
+    const title = document.createElement('strong');
+    title.textContent = record.name;
+    const meta = document.createElement('span');
+    const pageText = record.pageCount ? `${record.pageCount} стр.` : 'страницы ещё не посчитаны';
+    meta.textContent = `${record.type === 'notebook' ? 'Блокнот' : 'PDF'} · ${pageText}`;
+    card.append(icon, title, meta);
+    card.addEventListener('click', () => openDocumentById(record.id));
+    libraryGrid.appendChild(card);
+  }
+}
+
+async function openSelectedPdf(file) {
   if (!file) return;
-  setStatus('Сохраняю локально…');
   const bytes = await file.arrayBuffer();
   const id = await hashBytes(bytes);
-  await saveLocalDocument(id, file.name, bytes);
-  await renderPdf(bytes, id, file.name);
+  const existing = await idbGet('documents', id);
+  const now = Date.now();
+  const record = {
+    id,
+    name: file.name,
+    type: 'pdf',
+    pageCount: existing?.pageCount ?? null,
+    data: bytes.slice(0),
+    createdAt: existing?.createdAt ?? existing?.savedAt ?? now,
+    updatedAt: now,
+  };
+  await idbPut('documents', record);
+  await openDocumentRecord(record);
 }
+
+function makeNotebookId() {
+  if (crypto.randomUUID) return `notebook-${crypto.randomUUID()}`;
+  return `notebook-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+async function createNotebook() {
+  const name = window.prompt('Название блокнота', 'Новый блокнот');
+  if (name === null) return;
+  const cleanName = name.trim() || 'Новый блокнот';
+  const record = createNotebookRecord(cleanName, makeNotebookId());
+  await idbPut('documents', record);
+  await openDocumentRecord(record);
+}
+
+async function addPageToCurrentNotebook() {
+  if (!currentDocument || currentDocument.type !== 'notebook') return;
+  const next = addNotebookPage(currentDocument);
+  await idbPut('documents', next);
+  currentDocument = next;
+  await renderNotebook(next);
+  requestAnimationFrame(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }));
+}
+
+async function exportLibrary() {
+  try {
+    exportLibraryButton.disabled = true;
+    libraryStatus.textContent = 'Готовлю экспорт…';
+    const documents = (await idbGetAll('documents')).map(normalizeDocumentRecord);
+    const strokes = await idbGetAll('strokes');
+    const text = serializeBackup(documents, strokes);
+    const blob = new Blob([text], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const day = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `notes-rinrin-backup-${day}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+    libraryStatus.textContent = 'Экспорт готов';
+  } catch (error) {
+    console.error(error);
+    libraryStatus.textContent = 'Не удалось экспортировать';
+  } finally {
+    exportLibraryButton.disabled = false;
+  }
+}
+
+async function importLibrary(file) {
+  if (!file) return;
+  libraryStatus.textContent = 'Импортирую…';
+  const backup = deserializeBackup(await file.text());
+  await idbPutMany('documents', backup.documents);
+  await idbPutMany('strokes', backup.strokes);
+  await renderLibrary('Импортировано');
+}
+
+readTool.addEventListener('click', () => setMode('read'));
+drawTool.addEventListener('click', () => setMode('draw'));
+eraserTool.addEventListener('click', () => setMode('erase'));
+homeButton.addEventListener('click', () => renderLibrary());
+addPageButton.addEventListener('click', addPageToCurrentNotebook);
+newNotebookButton.addEventListener('click', createNotebook);
+newNotebookEmptyButton.addEventListener('click', createNotebook);
+exportLibraryButton.addEventListener('click', exportLibrary);
 
 pdfInput.addEventListener('change', async () => {
   const [file] = pdfInput.files;
   try {
-    await openSelectedFile(file);
+    await openSelectedPdf(file);
   } catch (error) {
     console.error(error);
-    setStatus('Не удалось открыть');
+    await renderLibrary('Не удалось открыть PDF');
   } finally {
     pdfInput.value = '';
   }
 });
 
+backupInput.addEventListener('change', async () => {
+  const [file] = backupInput.files;
+  try {
+    await importLibrary(file);
+  } catch (error) {
+    console.error(error);
+    libraryStatus.textContent = 'Не удалось импортировать копию';
+  } finally {
+    backupInput.value = '';
+  }
+});
+
 window.addEventListener('resize', () => {
-  if (!currentPdfBytes || !currentDocumentId) return;
+  if (!currentDocument) return;
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(async () => {
-    const lastDocument = await idbGet('documents', currentDocumentId);
-    if (lastDocument) await renderPdf(lastDocument.data, lastDocument.id, lastDocument.name);
+    const fresh = await idbGet('documents', currentDocument.id);
+    if (!fresh) return;
+    const record = normalizeDocumentRecord(fresh);
+    currentDocument = record;
+    if (record.type === 'notebook') await renderNotebook(record);
+    else await renderPdf(record);
   }, 350);
 });
 
-async function restoreLastDocument() {
-  try {
-    const saved = await getLastLocalDocument();
-    if (!saved) return;
-    setStatus('Восстанавливаю последний PDF…');
-    await renderPdf(saved.data, saved.id, saved.name);
-  } catch (error) {
-    console.error(error);
-    setStatus('Открой PDF');
-  }
-}
-
 setMode('read');
-restoreLastDocument();
+renderLibrary().catch(error => {
+  console.error(error);
+  libraryStatus.textContent = 'Не удалось открыть локальную библиотеку';
+});
