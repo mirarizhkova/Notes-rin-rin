@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes, viewport-fit=cover" />
+  <meta name="theme-color" content="#f4f4f6" />
+  <title>Notes RinRin</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="toolbar" aria-label="Инструменты">
+    <label class="tool-button file-button" for="pdf-input">PDF</label>
+    <input id="pdf-input" type="file" accept="application/pdf,.pdf" hidden />
+
+    <button id="read-tool" class="tool-button active" type="button" aria-pressed="true">Рука</button>
+    <button id="draw-tool" class="tool-button" type="button" aria-pressed="false">Ручка</button>
+    <button id="eraser-tool" class="tool-button" type="button" aria-pressed="false">Ластик</button>
+
+    <div class="document-info" aria-live="polite">
+      <strong id="document-name">Notes RinRin</strong>
+      <span id="status">Открой PDF</span>
+    </div>
+  </header>
+
+  <main id="viewer" class="viewer" aria-live="polite">
+    <section id="empty-state" class="empty-state">
+      <h1>Открой PDF</h1>
+      <p>Страницы появятся вертикальной лентой. Ручка рисует чёрным, ластик удаляет твои штрихи.</p>
+      <label class="open-main" for="pdf-input">Выбрать PDF</label>
+    </section>
+  </main>
+
+  <template id="page-template">
+    <section class="pdf-page">
+      <canvas class="pdf-canvas"></canvas>
+      <canvas class="ink-canvas"></canvas>
+      <div class="page-number"></div>
+    </section>
+  </template>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
