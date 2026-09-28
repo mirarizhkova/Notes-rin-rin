@@ -5,33 +5,56 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes, viewport-fit=cover" />
   <meta name="theme-color" content="#f4f4f6" />
   <meta name="apple-mobile-web-app-title" content="Notes RinRin" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <title>Notes RinRin</title>
-  <link rel="apple-touch-icon" href="icon-180.png" />
-  <link rel="icon" type="image/png" href="icon-180.png" />
+  <link rel="apple-touch-icon" href="icon-180.png?v=3" />
+  <link rel="icon" type="image/png" href="icon-192.png?v=3" />
+  <link rel="manifest" href="manifest.webmanifest" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <header class="toolbar" aria-label="Инструменты">
-    <label class="tool-button file-button" for="pdf-input">PDF</label>
-    <input id="pdf-input" type="file" accept="application/pdf,.pdf" hidden />
+  <input id="pdf-input" type="file" accept="application/pdf,.pdf" hidden />
+  <input id="backup-input" type="file" accept="application/json,.json" hidden />
 
+  <header id="home-toolbar" class="toolbar home-toolbar" aria-label="Библиотека">
+    <strong class="app-name">Notes RinRin</strong>
+    <label class="tool-button file-button" for="pdf-input">+ PDF</label>
+    <button id="new-notebook" class="tool-button" type="button">+ Блокнот</button>
+    <button id="export-library" class="tool-button" type="button">Экспорт</button>
+    <label class="tool-button file-button" for="backup-input">Импорт</label>
+  </header>
+
+  <header id="document-toolbar" class="toolbar" aria-label="Инструменты" hidden>
+    <button id="home-button" class="tool-button" type="button">← Домой</button>
+    <button id="add-page" class="tool-button" type="button" hidden>+ Стр.</button>
     <button id="read-tool" class="tool-button active" type="button" aria-pressed="true">Рука</button>
     <button id="draw-tool" class="tool-button" type="button" aria-pressed="false">Ручка</button>
     <button id="eraser-tool" class="tool-button" type="button" aria-pressed="false">Ластик</button>
 
     <div class="document-info" aria-live="polite">
       <strong id="document-name">Notes RinRin</strong>
-      <span id="status">Открой PDF</span>
+      <span id="status">Готово</span>
     </div>
   </header>
 
-  <main id="viewer" class="viewer" aria-live="polite">
-    <section id="empty-state" class="empty-state">
-      <h1>Открой PDF</h1>
-      <p>Страницы появятся вертикальной лентой. Ручка рисует чёрным, ластик удаляет твои штрихи.</p>
-      <label class="open-main" for="pdf-input">Выбрать PDF</label>
+  <main id="home-view" class="home-view">
+    <section class="library-heading">
+      <h1>Библиотека</h1>
+      <p id="library-status">Локально на этом устройстве</p>
+    </section>
+    <section id="library-grid" class="library-grid" aria-live="polite"></section>
+    <section id="library-empty" class="empty-state library-empty">
+      <h2>Пока пусто</h2>
+      <p>Добавь PDF или создай пустой блокнот. Всё хранится локально в этом браузере.</p>
+      <div class="empty-actions">
+        <label class="open-main" for="pdf-input">Выбрать PDF</label>
+        <button id="new-notebook-empty" class="open-main secondary" type="button">Новый блокнот</button>
+      </div>
     </section>
   </main>
+
+  <main id="viewer" class="viewer" aria-live="polite" hidden></main>
 
   <template id="page-template">
     <section class="pdf-page">
