@@ -1,0 +1,18 @@
+/* Document-only pinch zoom. The app chrome stays at 100%. */
+.viewer {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  touch-action: pan-x pan-y;
+  -webkit-overflow-scrolling: touch;
+}
+
+.viewer .pdf-page,
+.viewer .pdf-canvas,
+.viewer .ink-canvas {
+  max-width: none;
+}
+
+.viewer.draw-mode .ink-canvas,
+.viewer.erase-mode .ink-canvas {
+  touch-action: none;
+}
