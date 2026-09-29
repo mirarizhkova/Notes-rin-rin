@@ -1,4 +1,4 @@
-import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/build/pdf.min.mjs';
+import { loadPdfJs } from './pdf-compat.js';
 import { clientPointToCanvas, strokeHitsPoint } from './drawing.js';
 import { createLazyPdfRenderer } from './pdf-lazy.js';
 import { createLazyNotebookRenderer } from './notebook-lazy.js';
@@ -9,8 +9,6 @@ import {
   normalizeDocumentRecord,
   serializeBackup,
 } from './library.js';
-
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/build/pdf.worker.min.mjs';
 
 const DB_NAME = 'notes-rinrin';
 const DB_VERSION = 1;
@@ -341,6 +339,7 @@ async function renderPdf(record) {
   viewer.replaceChildren();
 
   try {
+    const pdfjsLib = await loadPdfJs();
     const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(currentPdfBytes.slice(0)) });
     const pdf = await loadingTask.promise;
     if (generation !== renderGeneration) {
