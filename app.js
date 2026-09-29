@@ -1,5 +1,6 @@
 import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/build/pdf.min.mjs';
 import { clientPointToCanvas, strokeHitsPoint } from './drawing.js';
+import { createLazyPdfRenderer } from './pdf-lazy.js';
 import {
   addNotebookPage,
   createNotebookRecord,
@@ -40,6 +41,7 @@ let currentDocument = null;
 let renderGeneration = 0;
 let resizeTimer = null;
 let currentPdfBytes = null;
+let currentPdfRenderer = null;
 
 function setStatus(text) {
   status.textContent = text;
@@ -59,8 +61,14 @@ function setMode(nextMode) {
   }
 }
 
+function stopPdfRenderer() {
+  currentPdfRenderer?.destroy();
+  currentPdfRenderer = null;
+}
+
 function showHomeView() {
   renderGeneration += 1;
+  stopPdfRenderer();
   currentDocument = null;
   currentPdfBytes = null;
   documentToolbar.hidden = true;
@@ -313,33 +321,11 @@ function configurePageCanvases(fragment, cssWidth, cssHeight, outputScale, pageN
   return { pageElement, pdfCanvas, inkCanvas };
 }
 
-async function renderPdfPage(pdf, pageNumber, generation, documentId) {
-  if (generation !== renderGeneration) return;
-  const page = await pdf.getPage(pageNumber);
-  if (generation !== renderGeneration) return;
-
-  const baseViewport = page.getViewport({ scale: 1 });
-  const maxCssWidth = Math.min(900, Math.max(280, window.innerWidth - 20));
-  const cssScale = maxCssWidth / baseViewport.width;
-  const outputScale = Math.min(window.devicePixelRatio || 1, PDF_RENDER_LIMIT);
-  const renderViewport = page.getViewport({ scale: cssScale * outputScale });
-  const cssViewport = page.getViewport({ scale: cssScale });
-
-  const fragment = pageTemplate.content.cloneNode(true);
-  const { pdfCanvas, inkCanvas } = configurePageCanvases(fragment, cssViewport.width, cssViewport.height, outputScale, pageNumber);
-  viewer.appendChild(fragment);
-
-  await page.render({ canvasContext: pdfCanvas.getContext('2d'), viewport: renderViewport }).promise;
-  if (generation !== renderGeneration) return;
-  const strokes = await loadStrokes(documentId, pageNumber);
-  redrawInk(inkCanvas, strokes);
-  bindInkCanvas(inkCanvas, pageNumber, strokes, documentId);
-}
-
 async function renderPdf(record) {
   const generation = ++renderGeneration;
   const documentId = record.id;
   const bytes = record.data;
+  stopPdfRenderer();
   currentPdfBytes = bytes?.slice ? bytes.slice(0) : bytes;
   document.body.classList.add('is-loading');
   setStatus('Открываю PDF…');
@@ -348,7 +334,10 @@ async function renderPdf(record) {
   try {
     const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(currentPdfBytes.slice(0)) });
     const pdf = await loadingTask.promise;
-    if (generation !== renderGeneration) return;
+    if (generation !== renderGeneration) {
+      pdf.destroy?.();
+      return;
+    }
 
     if (record.pageCount !== pdf.numPages || record.type !== 'pdf') {
       const next = {
@@ -361,15 +350,22 @@ async function renderPdf(record) {
       if (currentDocument?.id === record.id) currentDocument = normalizeDocumentRecord(next);
     }
 
-    setStatus(`${pdf.numPages} стр. · загружаю…`);
-    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
-      await renderPdfPage(pdf, pageNumber, generation, documentId);
-      if (generation !== renderGeneration) return;
-      setStatus(`${pageNumber}/${pdf.numPages} стр.`);
-    }
-    setStatus(`${pdf.numPages} стр. · готово`);
+    currentPdfRenderer = createLazyPdfRenderer({
+      pdf,
+      viewer,
+      pageTemplate,
+      documentId,
+      generationIsCurrent: () => generation === renderGeneration && currentDocument?.id === documentId,
+      loadStrokes,
+      redrawInk,
+      bindInkCanvas,
+      setStatus,
+      renderLimit: PDF_RENDER_LIMIT,
+    });
+    await currentPdfRenderer.init();
   } catch (error) {
     console.error(error);
+    stopPdfRenderer();
     viewer.innerHTML = `<section class="empty-state"><h1>PDF не открылся</h1><p>Попробуй другой файл. Если повторится — будем разбирать конкретный PDF.</p></section>`;
     setStatus('Ошибка открытия');
   } finally {
@@ -397,6 +393,7 @@ async function renderNotebookPage(record, pageNumber, generation) {
 
 async function renderNotebook(record) {
   const generation = ++renderGeneration;
+  stopPdfRenderer();
   currentPdfBytes = null;
   viewer.replaceChildren();
   const pageCount = record.pageCount ?? 1;
