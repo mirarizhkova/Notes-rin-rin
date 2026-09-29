@@ -1,4 +1,4 @@
-import { clampZoom, touchDistance, touchMidpoint, zoomFromPinch } from './zoom-core.js';
+import { clampZoom, shouldSuppressClick, touchDistance, touchMidpoint, zoomFromPinch } from './zoom-core.js';
 
 const viewer = document.querySelector('#viewer');
 const homeButton = document.querySelector('#home-button');
@@ -8,6 +8,7 @@ let pinching = false;
 let startDistance = 0;
 let startZoom = 1;
 let anchor = null;
+let pinchEndedAt = 0;
 
 function pageElements() {
   return [...viewer.querySelectorAll('.pdf-page')];
@@ -93,10 +94,12 @@ function movePinch(event) {
 function finishPinch(event) {
   if (!pinching) return;
   if (event.touches.length >= 2) return;
+  event.preventDefault();
   pinching = false;
   startDistance = 0;
   startZoom = zoom;
   anchor = null;
+  pinchEndedAt = performance.now();
 }
 
 viewer.addEventListener('touchstart', startPinch, { passive: false });
@@ -109,6 +112,12 @@ for (const eventName of ['gesturestart', 'gesturechange', 'gestureend']) {
     if (!viewer.hidden) event.preventDefault();
   }, { passive: false });
 }
+
+document.addEventListener('click', event => {
+  if (!shouldSuppressClick(pinchEndedAt, performance.now())) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+}, true);
 
 homeButton?.addEventListener('click', resetZoom);
 
