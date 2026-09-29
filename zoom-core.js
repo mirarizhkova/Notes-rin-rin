@@ -1,5 +1,6 @@
 export const MIN_ZOOM = 1;
 export const MAX_ZOOM = 3;
+export const PINCH_CLICK_GUARD_MS = 500;
 
 export function clampZoom(value, min = MIN_ZOOM, max = MAX_ZOOM) {
   if (!Number.isFinite(value)) return min;
@@ -20,4 +21,8 @@ export function touchMidpoint(a, b) {
 export function zoomFromPinch(startZoom, startDistance, currentDistance) {
   if (!(startDistance > 0)) return clampZoom(startZoom);
   return clampZoom(startZoom * (currentDistance / startDistance));
+}
+
+export function shouldSuppressClick(pinchEndedAt, now, guardMs = PINCH_CLICK_GUARD_MS) {
+  return pinchEndedAt > 0 && now - pinchEndedAt >= 0 && now - pinchEndedAt <= guardMs;
 }
