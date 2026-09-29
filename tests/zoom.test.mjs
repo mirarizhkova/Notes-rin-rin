@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { clampZoom, touchDistance, touchMidpoint, zoomFromPinch } from '../zoom-core.js';
+import { clampZoom, shouldSuppressClick, touchDistance, touchMidpoint, zoomFromPinch } from '../zoom-core.js';
 
 test('clampZoom keeps document zoom between 1x and 3x', () => {
   assert.equal(clampZoom(0.3), 1);
@@ -18,4 +18,10 @@ test('touch helpers measure a two-finger gesture', () => {
 test('zoomFromPinch scales from the gesture starting distance', () => {
   assert.equal(zoomFromPinch(1, 100, 180), 1.8);
   assert.equal(zoomFromPinch(2, 100, 200), 3);
+});
+
+test('synthetic clicks are suppressed briefly after pinch', () => {
+  assert.equal(shouldSuppressClick(1000, 1200), true);
+  assert.equal(shouldSuppressClick(1000, 1499), true);
+  assert.equal(shouldSuppressClick(1000, 1501), false);
 });
