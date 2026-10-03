@@ -11,12 +11,110 @@ body { background: #e9e9ed; overscroll-behavior-y: contain; }
 button, label { font: inherit; }
 [hidden] { display: none !important; }
 
-.toolbar {
+.tabs-bar {
   position: sticky;
   top: 0;
+  z-index: 120;
+  min-height: calc(46px + env(safe-area-inset-top));
+  padding: calc(6px + env(safe-area-inset-top)) 8px 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(238, 238, 242, 0.96);
+  border-bottom: 1px solid rgba(0,0,0,.08);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.home-tab,
+.tab-open,
+.tab-close {
+  appearance: none;
+  border: 0;
+  color: #2a2a30;
+  font: inherit;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.home-tab {
+  width: 36px;
+  height: 34px;
+  flex: 0 0 36px;
+  border-radius: 10px;
+  background: rgba(255,255,255,.64);
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,.06);
+  font-size: 20px;
+  line-height: 1;
+}
+.home-tab.active {
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0,0,0,.08), inset 0 0 0 1px rgba(0,0,0,.08);
+}
+.document-tabs {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+.document-tabs::-webkit-scrollbar { display: none; }
+.document-tab {
+  height: 34px;
+  max-width: min(220px, 58vw);
+  flex: 0 0 auto;
+  display: flex;
+  align-items: stretch;
+  overflow: hidden;
+  border-radius: 10px;
+  background: rgba(255,255,255,.58);
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,.06);
+}
+.document-tab.active {
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0,0,0,.08), inset 0 0 0 1px rgba(0,0,0,.08);
+}
+.tab-open {
+  min-width: 0;
+  padding: 0 7px 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: transparent;
+}
+.tab-kind {
+  flex: 0 0 auto;
+  color: #73737a;
+  font-size: 10px;
+  font-weight: 750;
+}
+.tab-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 650;
+}
+.tab-close {
+  width: 30px;
+  flex: 0 0 30px;
+  padding: 0;
+  background: transparent;
+  color: #7b7b82;
+  font-size: 17px;
+}
+.tab-close:active { background: rgba(0,0,0,.06); }
+
+.toolbar {
+  position: sticky;
+  top: calc(46px + env(safe-area-inset-top));
   z-index: 100;
   min-height: 58px;
-  padding: calc(8px + env(safe-area-inset-top)) 10px 8px;
+  padding: 8px 10px;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -160,6 +258,9 @@ button, label { font: inherit; }
 body.is-loading .tool-button:not(.file-button) { opacity: .45; }
 
 @media (max-width: 520px) {
+  .tabs-bar { gap: 5px; padding-left: 6px; padding-right: 6px; }
+  .document-tabs { gap: 5px; }
+  .document-tab { max-width: 64vw; }
   .toolbar { gap: 5px; }
   .tool-button { min-height: 38px; padding: 0 10px; font-size: 13px; }
   .document-info { min-width: 105px; flex: 1 0 105px; }
