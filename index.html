@@ -18,6 +18,11 @@
   <input id="pdf-input" type="file" accept="application/pdf,.pdf" hidden />
   <input id="backup-input" type="file" accept="application/json,.json" hidden />
 
+  <nav id="tabs-bar" class="tabs-bar" aria-label="Открытые документы">
+    <button id="home-tab" class="home-tab active" type="button" aria-current="page" aria-label="Главная" title="Главная">⌂</button>
+    <div id="document-tabs" class="document-tabs" role="tablist" aria-label="Документы"></div>
+  </nav>
+
   <header id="home-toolbar" class="toolbar home-toolbar" aria-label="Библиотека">
     <strong class="app-name">Notes RinRin</strong>
     <label class="tool-button file-button" for="pdf-input">+ PDF</label>
