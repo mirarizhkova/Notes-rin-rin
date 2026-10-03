@@ -34,7 +34,12 @@ const eraserTool = document.querySelector('#eraser-tool');
 const newNotebookButton = document.querySelector('#new-notebook');
 const newNotebookEmptyButton = document.querySelector('#new-notebook-empty');
 const exportLibraryButton = document.querySelector('#export-library');
+const homeTab = document.querySelector('#home-tab');
+const documentTabs = document.querySelector('#document-tabs');
 
+const TABS_STORAGE_KEY = 'notes-rinrin-open-tabs-v1';
+let openTabs = [];
+let activeTabId = 'home';
 let mode = 'read';
 let currentDocument = null;
 let renderGeneration = 0;
@@ -42,6 +47,113 @@ let resizeTimer = null;
 let currentPdfBytes = null;
 let currentPdfRenderer = null;
 let currentNotebookRenderer = null;
+
+function readTabState() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(TABS_STORAGE_KEY) || '{}');
+    const ids = Array.isArray(raw.ids)
+      ? [...new Set(raw.ids.filter(id => typeof id === 'string' && id))]
+      : [];
+    return {
+      ids,
+      activeId: typeof raw.activeId === 'string' ? raw.activeId : 'home',
+    };
+  } catch {
+    return { ids: [], activeId: 'home' };
+  }
+}
+
+function saveTabState() {
+  localStorage.setItem(TABS_STORAGE_KEY, JSON.stringify({
+    ids: openTabs.map(tab => tab.id),
+    activeId: activeTabId,
+  }));
+}
+
+function renderTabs() {
+  const homeIsActive = activeTabId === 'home';
+  homeTab.classList.toggle('active', homeIsActive);
+  homeTab.setAttribute('aria-current', homeIsActive ? 'page' : 'false');
+  documentTabs.replaceChildren();
+
+  for (const tab of openTabs) {
+    const tabElement = document.createElement('div');
+    tabElement.className = 'document-tab';
+    tabElement.classList.toggle('active', activeTabId === tab.id);
+    tabElement.setAttribute('role', 'tab');
+    tabElement.setAttribute('aria-selected', String(activeTabId === tab.id));
+
+    const openButton = document.createElement('button');
+    openButton.type = 'button';
+    openButton.className = 'tab-open';
+    openButton.title = tab.name;
+
+    const kind = document.createElement('span');
+    kind.className = 'tab-kind';
+    kind.textContent = tab.type === 'notebook' ? '▤' : 'PDF';
+
+    const title = document.createElement('span');
+    title.className = 'tab-title';
+    title.textContent = tab.name;
+
+    const closeButton = document.createElement('button');
+    closeButton.type = 'button';
+    closeButton.className = 'tab-close';
+    closeButton.textContent = '×';
+    closeButton.setAttribute('aria-label', `Закрыть ${tab.name}`);
+    closeButton.title = 'Закрыть вкладку';
+
+    openButton.append(kind, title);
+    openButton.addEventListener('click', () => openDocumentById(tab.id));
+    closeButton.addEventListener('click', event => {
+      event.stopPropagation();
+      closeDocumentTab(tab.id);
+    });
+    tabElement.append(openButton, closeButton);
+    documentTabs.appendChild(tabElement);
+
+    if (activeTabId === tab.id) {
+      requestAnimationFrame(() => tabElement.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
+    }
+  }
+}
+
+function ensureDocumentTab(record) {
+  const normalized = normalizeDocumentRecord(record);
+  const existingIndex = openTabs.findIndex(tab => tab.id === normalized.id);
+  const tab = { id: normalized.id, name: normalized.name, type: normalized.type };
+  if (existingIndex === -1) openTabs.push(tab);
+  else openTabs[existingIndex] = tab;
+  activeTabId = normalized.id;
+  saveTabState();
+  renderTabs();
+}
+
+async function closeDocumentTab(documentId) {
+  const index = openTabs.findIndex(tab => tab.id === documentId);
+  if (index === -1) return;
+  const wasActive = activeTabId === documentId;
+  openTabs.splice(index, 1);
+
+  if (!wasActive) {
+    saveTabState();
+    renderTabs();
+    return;
+  }
+
+  const fallback = openTabs[Math.min(index, openTabs.length - 1)] ?? null;
+  if (fallback) {
+    activeTabId = fallback.id;
+    saveTabState();
+    renderTabs();
+    await openDocumentById(fallback.id);
+  } else {
+    activeTabId = 'home';
+    saveTabState();
+    renderTabs();
+    await renderLibrary();
+  }
+}
 
 function setStatus(text) {
   status.textContent = text;
@@ -72,6 +184,9 @@ function stopNotebookRenderer() {
 }
 
 function showHomeView() {
+  activeTabId = 'home';
+  saveTabState();
+  renderTabs();
   renderGeneration += 1;
   stopPdfRenderer();
   stopNotebookRenderer();
@@ -87,6 +202,7 @@ function showHomeView() {
 
 function showDocumentView(record) {
   currentDocument = normalizeDocumentRecord(record);
+  ensureDocumentTab(currentDocument);
   homeToolbar.hidden = true;
   homeView.hidden = true;
   documentToolbar.hidden = false;
@@ -422,7 +538,41 @@ async function openDocumentRecord(rawRecord) {
 
 async function openDocumentById(id) {
   const record = await idbGet('documents', id);
-  if (record) await openDocumentRecord(record);
+  if (record) {
+    await openDocumentRecord(record);
+    return;
+  }
+
+  openTabs = openTabs.filter(tab => tab.id !== id);
+  if (activeTabId === id) activeTabId = 'home';
+  saveTabState();
+  renderTabs();
+  await renderLibrary('Документ больше не найден');
+}
+
+async function restoreWorkspace() {
+  const saved = readTabState();
+  const restored = [];
+
+  for (const id of saved.ids) {
+    const record = await idbGet('documents', id);
+    if (!record) continue;
+    const normalized = normalizeDocumentRecord(record);
+    restored.push({ id: normalized.id, name: normalized.name, type: normalized.type });
+  }
+
+  openTabs = restored;
+  activeTabId = saved.activeId !== 'home' && openTabs.some(tab => tab.id === saved.activeId)
+    ? saved.activeId
+    : 'home';
+  saveTabState();
+  renderTabs();
+
+  if (activeTabId === 'home') {
+    await renderLibrary();
+    return;
+  }
+  await openDocumentById(activeTabId);
 }
 
 async function renderLibrary(message = '') {
@@ -536,6 +686,7 @@ readTool.addEventListener('click', () => setMode('read'));
 drawTool.addEventListener('click', () => setMode('draw'));
 eraserTool.addEventListener('click', () => setMode('erase'));
 homeButton.addEventListener('click', () => renderLibrary());
+homeTab.addEventListener('click', () => renderLibrary());
 addPageButton.addEventListener('click', addPageToCurrentNotebook);
 newNotebookButton.addEventListener('click', createNotebook);
 newNotebookEmptyButton.addEventListener('click', createNotebook);
@@ -579,7 +730,14 @@ window.addEventListener('resize', () => {
 });
 
 setMode('read');
-renderLibrary().catch(error => {
+restoreWorkspace().catch(error => {
   console.error(error);
-  libraryStatus.textContent = 'Не удалось открыть локальную библиотеку';
+  openTabs = [];
+  activeTabId = 'home';
+  saveTabState();
+  renderTabs();
+  renderLibrary().catch(fallbackError => {
+    console.error(fallbackError);
+    libraryStatus.textContent = 'Не удалось открыть локальную библиотеку';
+  });
 });
