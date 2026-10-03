@@ -26,7 +26,6 @@ const libraryStatus = document.querySelector('#library-status');
 const libraryGrid = document.querySelector('#library-grid');
 const libraryEmpty = document.querySelector('#library-empty');
 const pageTemplate = document.querySelector('#page-template');
-const homeButton = document.querySelector('#home-button');
 const addPageButton = document.querySelector('#add-page');
 const readTool = document.querySelector('#read-tool');
 const drawTool = document.querySelector('#draw-tool');
@@ -685,7 +684,6 @@ async function importLibrary(file) {
 readTool.addEventListener('click', () => setMode('read'));
 drawTool.addEventListener('click', () => setMode('draw'));
 eraserTool.addEventListener('click', () => setMode('erase'));
-homeButton.addEventListener('click', () => renderLibrary());
 homeTab.addEventListener('click', () => renderLibrary());
 addPageButton.addEventListener('click', addPageToCurrentNotebook);
 newNotebookButton.addEventListener('click', createNotebook);
