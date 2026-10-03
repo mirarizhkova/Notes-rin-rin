@@ -64,8 +64,9 @@ button, label { font: inherit; }
 .document-tabs::-webkit-scrollbar { display: none; }
 .document-tab {
   height: 34px;
+  min-width: calc(4ch + 64px);
   max-width: min(220px, 58vw);
-  flex: 0 0 auto;
+  flex: 0 1 220px;
   display: flex;
   align-items: stretch;
   overflow: hidden;
@@ -260,26 +261,10 @@ body.is-loading .tool-button:not(.file-button) { opacity: .45; }
 @media (max-width: 520px) {
   .tabs-bar { gap: 5px; padding-left: 6px; padding-right: 6px; }
   .document-tabs { gap: 5px; }
-  .document-tab { max-width: 64vw; }
-  .document-tabs.compact-tabs .document-tab {
-    width: 72px;
-    max-width: 72px;
-    flex-basis: 72px;
-  }
-  .document-tabs.compact-tabs .tab-open {
-    padding-left: 8px;
-    padding-right: 3px;
-  }
-  .document-tabs.compact-tabs .tab-kind { display: none; }
-  .document-tabs.compact-tabs .tab-title {
-    width: 4ch;
-    max-width: 4ch;
-    overflow: hidden;
-    text-overflow: clip;
-  }
-  .document-tabs.compact-tabs .tab-close {
-    width: 28px;
-    flex-basis: 28px;
+  .document-tab {
+    min-width: calc(4ch + 64px);
+    max-width: 64vw;
+    flex-basis: 64vw;
   }
   .toolbar { gap: 5px; }
   .tool-button { min-height: 38px; padding: 0 10px; font-size: 13px; }
