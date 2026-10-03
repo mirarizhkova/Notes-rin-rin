@@ -71,8 +71,10 @@ function saveTabState() {
 
 function renderTabs() {
   const homeIsActive = activeTabId === 'home';
+  const compactTabs = window.matchMedia('(max-width: 520px)').matches && openTabs.length > 4;
   homeTab.classList.toggle('active', homeIsActive);
   homeTab.setAttribute('aria-current', homeIsActive ? 'page' : 'false');
+  documentTabs.classList.toggle('compact-tabs', compactTabs);
   documentTabs.replaceChildren();
 
   for (const tab of openTabs) {
@@ -93,7 +95,7 @@ function renderTabs() {
 
     const title = document.createElement('span');
     title.className = 'tab-title';
-    title.textContent = tab.name;
+    title.textContent = compactTabs ? Array.from(tab.name).slice(0, 4).join('') : tab.name;
 
     const closeButton = document.createElement('button');
     closeButton.type = 'button';
@@ -715,6 +717,7 @@ backupInput.addEventListener('change', async () => {
 });
 
 window.addEventListener('resize', () => {
+  renderTabs();
   if (!currentDocument) return;
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(async () => {
