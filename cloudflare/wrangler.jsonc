@@ -1,0 +1,12 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "notes-rinrin-storage",
+  "main": "worker.js",
+  "compatibility_date": "2026-10-06",
+  "r2_buckets": [
+    {
+      "binding": "NOTES_BUCKET",
+      "bucket_name": "notes-rinrin-storage"
+    }
+  ]
+}
