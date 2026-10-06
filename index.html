@@ -43,6 +43,33 @@
     </div>
   </header>
 
+  <section id="pen-options" class="pen-options" aria-label="Настройки ручки" hidden>
+    <span class="pen-options-label">Цвет</span>
+    <div id="base-pen-colors" class="pen-color-row" aria-label="Базовые цвета">
+      <button class="pen-color" type="button" data-color="#111111" style="--pen-color:#111111" aria-label="Чёрный"></button>
+      <button class="pen-color" type="button" data-color="#2563eb" style="--pen-color:#2563eb" aria-label="Синий"></button>
+      <button class="pen-color" type="button" data-color="#dc2626" style="--pen-color:#dc2626" aria-label="Красный"></button>
+      <button class="pen-color" type="button" data-color="#16a34a" style="--pen-color:#16a34a" aria-label="Зелёный"></button>
+      <button class="pen-color" type="button" data-color="#7c3aed" style="--pen-color:#7c3aed" aria-label="Фиолетовый"></button>
+    </div>
+
+    <label class="custom-pen-color" title="Свой цвет" aria-label="Выбрать свой цвет">
+      <input id="custom-pen-color" type="color" value="#8b5cf6" />
+      <span>+</span>
+    </label>
+
+    <div id="recent-pen-colors" class="pen-color-row recent-pen-colors" aria-label="Недавние цвета"></div>
+
+    <span class="pen-options-divider" aria-hidden="true"></span>
+    <span class="pen-options-label">Толщина</span>
+    <div id="pen-widths" class="pen-width-row" aria-label="Толщина ручки">
+      <button class="pen-width" type="button" data-width="1.4" aria-label="Тонкая"><span style="--pen-width:1.4px"></span></button>
+      <button class="pen-width" type="button" data-width="2.4" aria-label="Обычная"><span style="--pen-width:2.4px"></span></button>
+      <button class="pen-width" type="button" data-width="4" aria-label="Толстая"><span style="--pen-width:4px"></span></button>
+      <button class="pen-width" type="button" data-width="6.5" aria-label="Очень толстая"><span style="--pen-width:6.5px"></span></button>
+    </div>
+  </section>
+
   <main id="home-view" class="home-view">
     <section class="library-heading">
       <h1>Библиотека</h1>
