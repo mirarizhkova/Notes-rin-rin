@@ -35,8 +35,16 @@ const newNotebookEmptyButton = document.querySelector('#new-notebook-empty');
 const exportLibraryButton = document.querySelector('#export-library');
 const homeTab = document.querySelector('#home-tab');
 const documentTabs = document.querySelector('#document-tabs');
+const penOptions = document.querySelector('#pen-options');
+const customPenColor = document.querySelector('#custom-pen-color');
+const recentPenColors = document.querySelector('#recent-pen-colors');
+const penWidths = document.querySelector('#pen-widths');
 
 const TABS_STORAGE_KEY = 'notes-rinrin-open-tabs-v1';
+const PEN_SETTINGS_KEY = 'notes-rinrin-pen-settings-v1';
+const DEFAULT_PEN_COLORS = ['#111111', '#2563eb', '#dc2626', '#16a34a', '#7c3aed'];
+const DEFAULT_PEN_COLOR = '#111111';
+const DEFAULT_PEN_WIDTH = 2.4;
 let openTabs = [];
 let activeTabId = 'home';
 let mode = 'read';
@@ -46,6 +54,75 @@ let resizeTimer = null;
 let currentPdfBytes = null;
 let currentPdfRenderer = null;
 let currentNotebookRenderer = null;
+let penColor = DEFAULT_PEN_COLOR;
+let penWidth = DEFAULT_PEN_WIDTH;
+let recentColors = [];
+
+function normalizeColor(value) {
+  return /^#[0-9a-f]{6}$/i.test(value || '') ? value.toLowerCase() : DEFAULT_PEN_COLOR;
+}
+
+function readPenSettings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(PEN_SETTINGS_KEY) || '{}');
+    penColor = normalizeColor(saved.color);
+    penWidth = [1.4, 2.4, 4, 6.5].includes(Number(saved.width))
+      ? Number(saved.width)
+      : DEFAULT_PEN_WIDTH;
+    recentColors = Array.isArray(saved.recentColors)
+      ? saved.recentColors
+          .map(normalizeColor)
+          .filter(color => !DEFAULT_PEN_COLORS.includes(color))
+          .filter((color, index, array) => array.indexOf(color) === index)
+          .slice(0, 5)
+      : [];
+  } catch {
+    penColor = DEFAULT_PEN_COLOR;
+    penWidth = DEFAULT_PEN_WIDTH;
+    recentColors = [];
+  }
+}
+
+function savePenSettings() {
+  localStorage.setItem(PEN_SETTINGS_KEY, JSON.stringify({
+    color: penColor,
+    width: penWidth,
+    recentColors,
+  }));
+}
+
+function choosePenColor(color, { rememberCustom = false } = {}) {
+  penColor = normalizeColor(color);
+  if (rememberCustom && !DEFAULT_PEN_COLORS.includes(penColor)) {
+    recentColors = [penColor, ...recentColors.filter(item => item !== penColor)].slice(0, 5);
+  }
+  savePenSettings();
+  renderPenControls();
+}
+
+function renderPenControls() {
+  document.querySelectorAll('.pen-color[data-color]').forEach(button => {
+    button.classList.toggle('active', normalizeColor(button.dataset.color) === penColor);
+  });
+
+  recentPenColors.replaceChildren();
+  for (const color of recentColors) {
+    const button = document.createElement('button');
+    button.className = 'pen-color recent';
+    button.type = 'button';
+    button.dataset.color = color;
+    button.style.setProperty('--pen-color', color);
+    button.setAttribute('aria-label', `Недавний цвет ${color}`);
+    button.classList.toggle('active', color === penColor);
+    button.addEventListener('click', () => choosePenColor(color));
+    recentPenColors.appendChild(button);
+  }
+  recentPenColors.hidden = recentColors.length === 0;
+
+  penWidths.querySelectorAll('.pen-width').forEach(button => {
+    button.classList.toggle('active', Number(button.dataset.width) === penWidth);
+  });
+}
 
 function readTabState() {
   try {
@@ -170,6 +247,8 @@ function setMode(nextMode) {
     button.classList.toggle('active', active);
     button.setAttribute('aria-pressed', String(active));
   }
+
+  penOptions.hidden = mode !== 'draw' || documentToolbar.hidden;
 }
 
 function stopPdfRenderer() {
@@ -320,9 +399,11 @@ function drawStroke(context, canvas, stroke) {
 
   const cssScale = canvas.width / Math.max(1, canvas.getBoundingClientRect().width);
   context.save();
-  context.strokeStyle = '#111111';
-  context.fillStyle = '#111111';
-  context.lineWidth = 2.4 * cssScale;
+  const strokeColor = normalizeColor(stroke.color);
+  const strokeWidth = Number(stroke.width) > 0 ? Number(stroke.width) : DEFAULT_PEN_WIDTH;
+  context.strokeStyle = strokeColor;
+  context.fillStyle = strokeColor;
+  context.lineWidth = strokeWidth * cssScale;
   context.lineCap = 'round';
   context.lineJoin = 'round';
 
@@ -385,7 +466,11 @@ function bindInkCanvas(canvas, pageNumber, strokes, documentId) {
       return;
     }
 
-    currentStroke = { points: [normalizedPoint(event, canvas)] };
+    currentStroke = {
+      color: penColor,
+      width: penWidth,
+      points: [normalizedPoint(event, canvas)],
+    };
     strokes.push(currentStroke);
     redrawInk(canvas, strokes);
   });
@@ -684,6 +769,23 @@ async function importLibrary(file) {
 readTool.addEventListener('click', () => setMode('read'));
 drawTool.addEventListener('click', () => setMode('draw'));
 eraserTool.addEventListener('click', () => setMode('erase'));
+
+document.querySelectorAll('.pen-color[data-color]').forEach(button => {
+  button.addEventListener('click', () => choosePenColor(button.dataset.color));
+});
+
+customPenColor.addEventListener('change', () => {
+  choosePenColor(customPenColor.value, { rememberCustom: true });
+});
+
+penWidths.querySelectorAll('.pen-width').forEach(button => {
+  button.addEventListener('click', () => {
+    penWidth = Number(button.dataset.width) || DEFAULT_PEN_WIDTH;
+    savePenSettings();
+    renderPenControls();
+  });
+});
+
 homeTab.addEventListener('click', () => renderLibrary());
 addPageButton.addEventListener('click', addPageToCurrentNotebook);
 newNotebookButton.addEventListener('click', createNotebook);
@@ -727,6 +829,8 @@ window.addEventListener('resize', () => {
   }, 350);
 });
 
+readPenSettings();
+renderPenControls();
 setMode('read');
 restoreWorkspace().catch(error => {
   console.error(error);
