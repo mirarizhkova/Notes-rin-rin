@@ -1,4 +1,5 @@
 import { loadPdfJs } from './pdf-compat.js';
+import { mergeLibraries } from './cloud-sync.js';
 import { clientPointToCanvas, strokeHitsPoint } from './drawing.js';
 import { createLazyPdfRenderer } from './pdf-lazy.js';
 import { createLazyNotebookRenderer } from './notebook-lazy.js';
@@ -33,6 +34,8 @@ const eraserTool = document.querySelector('#eraser-tool');
 const newNotebookButton = document.querySelector('#new-notebook');
 const newNotebookEmptyButton = document.querySelector('#new-notebook-empty');
 const exportLibraryButton = document.querySelector('#export-library');
+const cloudSyncButton = document.querySelector('#cloud-sync');
+const cloudLogoutButton = document.querySelector('#cloud-logout');
 const homeTab = document.querySelector('#home-tab');
 const documentTabs = document.querySelector('#document-tabs');
 const penOptions = document.querySelector('#pen-options');
@@ -57,6 +60,8 @@ let currentNotebookRenderer = null;
 let penColor = DEFAULT_PEN_COLOR;
 let penWidth = DEFAULT_PEN_WIDTH;
 let recentColors = [];
+let cloudEnabled = false;
+let cloudAuthenticated = false;
 
 function normalizeColor(value) {
   return /^#[0-9a-f]{6}$/i.test(value || '') ? value.toLowerCase() : DEFAULT_PEN_COLOR;
@@ -766,6 +771,107 @@ async function importLibrary(file) {
   await renderLibrary('Импортировано');
 }
 
+async function refreshCloudStatus() {
+  try {
+    const response = await fetch('api/cloud/status', { cache: 'no-store' });
+    if (!response.ok) return; // Static GitHub Pages stays local-only.
+    const info = await response.json();
+    cloudEnabled = Boolean(info.configured);
+    cloudAuthenticated = Boolean(info.authenticated);
+    cloudSyncButton.hidden = !cloudEnabled;
+    cloudLogoutButton.hidden = !cloudAuthenticated;
+  } catch {
+    // Offline/local-only mode is always supported.
+  }
+}
+
+async function cloudRequest(path, options = {}) {
+  const response = await fetch(path, {
+    cache: 'no-store',
+    credentials: 'same-origin',
+    ...options,
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    const error = new Error(errorData.error || 'Ошибка облачного сервера (' + response.status + ')');
+    error.status = response.status;
+    throw error;
+  }
+  return response;
+}
+
+async function ensureCloudLogin() {
+  if (cloudAuthenticated) return true;
+  const password = window.prompt('Пароль для Notes RinRin в Cloud.ru');
+  if (password === null) return false;
+  await cloudRequest('api/cloud/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  });
+  cloudAuthenticated = true;
+  cloudLogoutButton.hidden = false;
+  return true;
+}
+
+async function syncWithCloud() {
+  if (!cloudEnabled) return;
+  cloudSyncButton.disabled = true;
+  libraryStatus.textContent = 'Синхронизирую с Cloud.ru…';
+  try {
+    if (!await ensureCloudLogin()) {
+      await renderLibrary('Синхронизация отменена');
+      return;
+    }
+
+    const local = {
+      documents: await idbGetAll('documents'),
+      strokes: await idbGetAll('strokes'),
+    };
+    let remote = null;
+    try {
+      const response = await cloudRequest('api/cloud/backup');
+      remote = deserializeBackup(await response.text());
+    } catch (error) {
+      if (error.status !== 404) throw error;
+    }
+
+    const merged = mergeLibraries(local, remote);
+    const backupText = serializeBackup(merged.documents, merged.strokes);
+    // The cloud snapshot is uploaded only after a successful download and merge.
+    await cloudRequest('api/cloud/backup', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: backupText,
+    });
+
+    await idbPutMany('documents', merged.documents);
+    await idbPutMany('strokes', merged.strokes);
+    await renderLibrary('Синхронизировано с Cloud.ru');
+  } catch (error) {
+    console.error(error);
+    if (error.status === 401) {
+      cloudAuthenticated = false;
+      cloudLogoutButton.hidden = true;
+    }
+    await renderLibrary('Синхронизация не удалась: ' + error.message);
+  } finally {
+    cloudSyncButton.disabled = false;
+  }
+}
+
+async function logoutCloud() {
+  try {
+    await cloudRequest('api/cloud/logout', { method: 'POST' });
+    cloudAuthenticated = false;
+    cloudLogoutButton.hidden = true;
+    await renderLibrary('Выход из облака выполнен');
+  } catch (error) {
+    console.error(error);
+    await renderLibrary('Не удалось выйти из облака');
+  }
+}
+
 readTool.addEventListener('click', () => setMode('read'));
 drawTool.addEventListener('click', () => setMode('draw'));
 eraserTool.addEventListener('click', () => setMode('erase'));
@@ -791,6 +897,8 @@ addPageButton.addEventListener('click', addPageToCurrentNotebook);
 newNotebookButton.addEventListener('click', createNotebook);
 newNotebookEmptyButton.addEventListener('click', createNotebook);
 exportLibraryButton.addEventListener('click', exportLibrary);
+cloudSyncButton.addEventListener('click', syncWithCloud);
+cloudLogoutButton.addEventListener('click', logoutCloud);
 
 pdfInput.addEventListener('change', async () => {
   const [file] = pdfInput.files;
@@ -843,3 +951,5 @@ restoreWorkspace().catch(error => {
     libraryStatus.textContent = 'Не удалось открыть локальную библиотеку';
   });
 });
+
+refreshCloudStatus();
