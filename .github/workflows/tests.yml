@@ -1,0 +1,22 @@
+name: Validate Notes RinRin
+
+on:
+  pull_request:
+  push:
+    branches:
+      - feature/cloudru-storage
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --no-audit --no-fund
+      - run: npm test
+      - run: node --check app.js && node --check server.mjs
